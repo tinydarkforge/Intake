@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -97,6 +98,26 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Global.Create):
 			if r.screen == ScreenNC {
 				r.screen = ScreenCreate
+
+				// Gather context from Local pane if any files are attached.
+				type attacher interface{ Attached() map[string]bool }
+				type receiver interface{ SetContext(map[string]string) }
+
+				if a, ok := r.Local.(attacher); ok {
+					attached := a.Attached()
+					if len(attached) > 0 {
+						ctxMap := make(map[string]string)
+						for path := range attached {
+							data, err := os.ReadFile(path)
+							if err == nil {
+								ctxMap[path] = string(data)
+							}
+						}
+						if rec, ok := r.Create.(receiver); ok {
+							rec.SetContext(ctxMap)
+						}
+					}
+				}
 			} else {
 				var cmd tea.Cmd
 				r, cmd = r.updateCurrent(msg)
@@ -656,7 +677,7 @@ func fnBar(width int, screen Screen, _ int) string {
 		hints = []hint{
 			{"↑/↓", "nav"}, {"enter", "open"}, {"o", "toggle"},
 			{"r", "refresh"}, {"tab", "switch pane"},
-			{"c", "create"}, {"s", "settings"}, {"q", "quit"},
+			{"a", "attach ctx"}, {"c", "create"}, {"s", "settings"}, {"q", "quit"},
 		}
 	}
 

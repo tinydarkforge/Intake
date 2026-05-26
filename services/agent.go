@@ -13,13 +13,15 @@ import (
 // Agent runs the multi-turn issue-drafting conversation with Ollama.
 // Ported from agent.sh lines 740–897.
 type Agent struct {
-	O        *OllamaClient
-	Template types.Template
-	Title    string
-	Brief    string
-	History  []types.Turn
-	MaxTurns int
-	Debug    bool
+	O                 *OllamaClient
+	Template          types.Template
+	Title             string
+	Brief             string
+	Context           map[string]string // path -> content
+	History           []types.Turn
+	RefinementHistory []types.Turn // Follow-up instructions from the user
+	MaxTurns          int
+	Debug             bool
 }
 
 const systemInstructions = `You are intake, an agent that drafts GitHub issues from whatever the user provides.
@@ -27,6 +29,7 @@ const systemInstructions = `You are intake, an agent that drafts GitHub issues f
 The user may give you:
 - A polished one-liner title + brief description
 - A raw dump: Slack message, error log, PR description, meeting notes, stack trace, or any unstructured text
+- Attached file contents for context
 - A mix of the above
 
 Your job is to extract intent and structure from ALL of it — never discard information.
@@ -85,6 +88,23 @@ func (a *Agent) Finalize(ctx context.Context) (types.AgentResponse, error) {
 	return resp, nil
 }
 
+// Refine sends a follow-up instruction to the agent to adjust the current draft.
+func (a *Agent) Refine(ctx context.Context, instruction string) (types.AgentResponse, error) {
+	a.RefinementHistory = append(a.RefinementHistory, types.Turn{Answer: instruction})
+	prompt := a.buildPrompt(len(a.History)+1, true)
+	var resp types.AgentResponse
+	raw, err := a.O.GenerateJSON(ctx, prompt)
+	if err != nil {
+		return resp, err
+	}
+	if err := ParseInto(raw, &resp); err != nil {
+		return resp, err
+	}
+	// Always treat refinement as producing a "ready" draft.
+	resp.Status = types.StatusReady
+	return resp, nil
+}
+
 func debugSink() io.Writer { return os.Stderr }
 
 func (a *Agent) buildPrompt(turn int, forceReady bool) string {
@@ -105,6 +125,14 @@ func (a *Agent) buildPrompt(turn int, forceReady bool) string {
 	} else {
 		b.WriteString("Title hint: (none — infer from context below)\n")
 	}
+
+	if len(a.Context) > 0 {
+		b.WriteString("\n# Attached Context Files\n")
+		for path, content := range a.Context {
+			fmt.Fprintf(&b, "File: %s\n---\n%s\n---\n", path, content)
+		}
+	}
+
 	fmt.Fprintf(&b, "\nRaw context (may be a paste, error log, Slack message, etc.):\n---\n%s\n---\n", a.Brief)
 	if len(a.History) > 0 {
 		b.WriteString("\n# Conversation so far\n")
@@ -112,6 +140,14 @@ func (a *Agent) buildPrompt(turn int, forceReady bool) string {
 			fmt.Fprintf(&b, "Q%d: %s\nA%d: %s\n", i+1, t.Question, i+1, t.Answer)
 		}
 	}
+
+	if len(a.RefinementHistory) > 0 {
+		b.WriteString("\n# Refinement Instructions\n")
+		for i, t := range a.RefinementHistory {
+			fmt.Fprintf(&b, "Instruction %d: %s\n", i+1, t.Answer)
+		}
+	}
+
 	fmt.Fprintf(&b, "\n# Turn %d of %d\n", turn, a.MaxTurns)
 	if forceReady {
 		b.WriteString("The user wants an immediate draft. Return status=\"ready\" now. Extract everything you can from the raw context; mark only genuinely unknowable details as TBD.\n")

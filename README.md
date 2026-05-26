@@ -22,383 +22,117 @@
   <a href="SECURITY.md"><img alt="security" src="https://img.shields.io/badge/security-policy-00cc66.svg?style=flat-square&labelColor=0a0a0a"></a>
 </p>
 
-> **Intake** is a terminal UI for GitHub issues powered by a local AI agent. Paste anything — a Slack message, an error log, meeting notes, a stack trace — and intake drafts a structured GitHub issue using a local Ollama model. No cloud. No account. No telemetry.
+## ░▒▓█ Overview
 
-> **Status:** Early release (`v0.1.0`). MIT-licensed. macOS and Linux. Report vulnerabilities via [SECURITY.md](SECURITY.md).
+**Intake** is an agentic Terminal UI designed to bridge the gap between messy engineering context and structured GitHub issues. Powered by **local AI (Ollama)**, it allows you to transform Slack messages, error logs, and local file contents into professional issue drafts without ever leaving your terminal or sending data to the cloud.
 
----
-
-## ░▒▓█ TL;DR
-
-```bash
-intake
-```
-
-Two-pane TUI: browse your filesystem left, manage GitHub issues right. Press `c` to create an issue — paste anything, the AI agent handles the rest.
+> **Privacy First:** No cloud. No accounts. No telemetry. Your code and context never leave your machine.
 
 ---
 
-## ░▒▓█ Installation script
+## ░▒▓█ Key Features
 
-One command. Installs Ollama, GitHub CLI, the intake binary, pulls the AI model, signs you in, and asks which repo to use.
+- **Agentic Issue Drafting:** Paste raw context and let the agent infer titles, reproduction steps, and technical summaries using your repo's own templates.
+- **Deep Context Integration:** Attach local files or logs directly from the filesystem pane to provide the AI with the exact code it needs to reference.
+- **Interactive Refinement:** Don't like a draft? Chat with the agent to refine it (e.g., *"Make it more concise"* or *"Add a security section"*).
+- **Dual-Pane Navigation:** A Norton Commander-style layout with a local filesystem browser on the left and GitHub issues on the right.
+- **Workflow Bridge:** Instantly create local feature branches (e.g., `feat/123-fix-auth`) immediately after issue creation.
+- **Live System Editing:** Jump into your preferred `$EDITOR` (vim/nano/etc.) to perform surgical tweaks to any AI-generated draft.
+- **Rich Visualization:** Beautiful TUI rendering with Git status indicators and full Markdown support via Glamour.
+
+---
+
+## ░▒▓█ Installation
+
+The guided installer handles dependencies (Ollama, GitHub CLI), pulls the default model, and configures your repository in one go.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tinydarkforge/Intake/main/scripts/install.sh | bash
 ```
 
-What it does, in plain English:
-
-1. Checks if you have **Ollama** (the local AI). Installs it if not.
-2. Checks if you have **GitHub CLI** (`gh`). Installs it if not, then signs you in.
-3. Downloads the **intake** app for your computer (macOS or Linux).
-4. Pulls a default AI model (`llama3`, ~4.7 GB — first time only).
-5. Asks which GitHub repo to point intake at, and saves it.
-
-When it finishes, type `intake` and press Enter.
-
-> Re-running the script is safe — every step skips itself if already done.
+*Supports macOS and Linux. For Windows, please download the latest release from the [Releases Page](https://github.com/tinydarkforge/Intake/releases/latest).*
 
 ---
 
-## ░▒▓█ What it does today
+## ░▒▓█ The "Intake" Workflow
 
-intake wraps two things: a **Norton Commander-style filesystem + issues browser** and an **agentic issue drafter** powered by Ollama.
-
-- **Two-pane layout** — local filesystem left, GitHub issues right
-- **Agentic issue creation** — paste raw context; agent asks 1–3 questions if needed, then drafts from your template
-- **Template-aware** — reads `.github/ISSUE_TEMPLATES/*.md` frontmatter; auto-applies labels on create
-- **Full issue CRUD** — create, edit title+body, comment, assign yourself, close, reopen
-- **Streaming drafts** — token-by-token output while the model thinks
-- **No cloud dependency** — Ollama runs locally; `gh` handles GitHub auth
-
-intake does not ship its own AI model. Every draft originates from whatever Ollama model you choose.
+1. **Browse & Attach:** Navigate your local files. Press `a` to attach relevant code as context.
+2. **Initiate:** Press `c` to create an issue. Choose a template.
+3. **Contextualize:** Paste a Slack thread or error log.
+4. **Refine:** Review the AI draft. Press `f` to provide follow-up instructions or `v` to edit manually in Vim.
+5. **Ship:** Press `y` to create the GitHub issue.
+6. **Bridge:** Press `b` to checkout a new local branch and start coding.
 
 ---
 
 ## ░▒▓█ Positioning
 
-intake is **not** a project management tool, a GitHub web app replacement, or a SaaS product. It is a **local TUI gate** for the create-and-triage loop: go from messy context to a structured GitHub issue without leaving the terminal.
+Intake is not a replacement for full-scale project management tools; it is a **high-speed triage gate**. It is built for the engineer who discovers a bug or a task and wants it documented and branched in under 30 seconds.
 
-| Alternative | When to pick it instead of intake |
-|-------------|----------------------------------|
-| **GitHub web UI** | You prefer a browser, or need labels/milestones/projects UI |
-| **`gh issue create`** | You already have a clean title and body |
-| **Linear / Jira** | You need a managed tracker with workflows, not raw GitHub issues |
-
-**intake's niche:** local AI, no account, no telemetry, instant context-to-issue from the terminal.
+| Feature | Intake | GitHub Web | `gh issue create` |
+|---------|--------|------------|-------------------|
+| **Local Context** | Deep (Attached files) | None | Manual Copy/Paste |
+| **AI Drafting** | Local (Private) | Optional (Cloud) | None |
+| **Workflow** | TUI (Fast) | GUI (Slow) | CLI (Static) |
+| **Data Privacy** | 100% Local | Cloud-processed | N/A |
 
 ---
 
 ## ░▒▓█ Requirements
 
-| Tool | Purpose | Min version |
-|------|---------|-------------|
-| [Ollama](https://ollama.ai) | Runs the AI model locally | 0.1.x |
-| [GitHub CLI (`gh`)](https://cli.github.com) | Creates / lists issues | 2.x |
-| [Go](https://go.dev/dl/) | Build from source only | 1.26+ |
-
-**Platforms:** macOS (Intel + Apple Silicon), Linux (x86\_64 + arm64), Windows (x86\_64 + arm64, untested). Pre-built binaries on the [releases page](https://github.com/tinydarkforge/Intake/releases/latest). The guided installer (`install.sh`) covers macOS and Linux only; Windows users should download the zip from releases.
+- **[Ollama](https://ollama.ai):** Local AI engine (requires `llama3` or similar).
+- **[GitHub CLI (`gh`)](https://cli.github.com):** Core API and authentication layer.
+- **Go 1.26+:** (Only required for building from source).
 
 ---
 
-## ░▒▓█ Manual install (advanced)
+## ░▒▓█ Configuration
 
-> Most users should use the [Installation script](#-installation-script) above. The steps below are for anyone who wants control over each piece.
+### Settings Screen
+Press `s` within the app to configure your repository, model choice, and Ollama host URL.
 
-### Pre-built binary
-
-Grab the tarball for your platform from the [latest release](https://github.com/tinydarkforge/Intake/releases/latest), extract, and move the binary onto your `$PATH`:
-
-```bash
-# example — macOS Apple Silicon
-tar -xzf intake_*_macos_arm64.tar.gz
-sudo mv intake /usr/local/bin/
-```
-
-Builds are provided for `macos_arm64`, `macos_x86_64`, `linux_arm64`, and `linux_x86_64`.
-
-### go install
-
-```bash
-go install github.com/tinydarkforge/intake@latest
-```
-
-### Build from source
-
-```bash
-git clone https://github.com/tinydarkforge/intake.git
-cd intake
-go build -o intake .
-sudo mv intake /usr/local/bin/
-```
-
-### Confirm `/usr/local/bin` is on your `$PATH`
-
-```bash
-echo "$PATH" | tr ':' '\n' | grep -x /usr/local/bin || \
-  echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zshrc
-```
+### Environment Variables
+For power users, Intake respects the following:
+- `INTAKE_REPO`: `owner/repo`
+- `INTAKE_MODEL`: (Default: `llama3`)
+- `OLLAMA_HOST`: (Default: `http://localhost:11434`)
+- `EDITOR`: Your preferred editor for live-editing drafts.
 
 ---
 
-## ░▒▓█ Dependencies
+## ░▒▓█ Usage Reference
 
-### Ollama
-
-**macOS / Linux:**
-```bash
-curl -fsSL https://ollama.ai/install.sh | sh
-# or: brew install ollama
-```
-
-Start the daemon:
-```bash
-ollama serve
-```
-
-Pull the default model:
-```bash
-ollama pull llama3
-```
-
-> Other models work — `mistral`, `llama3.1`, `gemma2`. Change the model in the Settings screen.
-
-Verify:
-```bash
-curl http://localhost:11434/api/tags
-```
-
-### GitHub CLI
-
-**macOS:** `brew install gh`
-
-**Linux (Debian/Ubuntu):**
-```bash
-(type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
-  && sudo mkdir -p -m 755 /etc/apt/keyrings \
-  && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-     | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-     | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-  && sudo apt update && sudo apt install gh -y
-```
-
-Authenticate:
-```bash
-gh auth login
-```
-
----
-
-## ░▒▓█ Configure
-
-### Option A — Settings screen (recommended)
-
-Run `intake`, press `s`, fill in repo and model, press `ctrl+s` to save.
-
-Config is stored at `~/.config/intake/config.json` (or `$INTAKE_CONFIG`).
-
-### Option B — Environment variables
-
-```bash
-export INTAKE_REPO="owner/repo"
-export INTAKE_MODEL="llama3"
-export OLLAMA_HOST="http://localhost:11434"
-export INTAKE_TIMEOUT=120
-export INTAKE_MAX_TURNS=6
-export INTAKE_TEMPLATE_DIR=".github/ISSUE_TEMPLATES"
-export INTAKE_DEBUG=1
-```
-
-### Option C — CLI flags
-
-```bash
-intake -repo owner/repo -model mistral -ollama-host http://192.168.1.10:11434
-intake -no-sound -debug
-```
-
-Flags override env vars, which override the config file.
-
----
-
-## ░▒▓█ Run
-
-```bash
-# make sure Ollama is running first
-ollama serve &
-
-intake
-# or with explicit repo
-intake -repo owner/repo
-```
-
----
-
-## ░▒▓█ Usage
-
-### Main view — Norton Commander layout
-
-intake opens in a two-pane layout:
-
-- **Left pane** — local filesystem browser, rooted at your working directory
-- **Right pane** — GitHub issues list for your configured repo
-
-Press `Tab` to switch panes. The active pane has a brighter border and title.
-
-#### Global keys
-
+### Global Keys
 | Key | Action |
 |-----|--------|
-| `Tab` | switch active pane |
-| `c` | open Create issue screen |
-| `s` | open Settings screen |
-| `?` | show help |
-| `q` | quit |
-| `esc` | go back / cancel |
+| `Tab` | Switch active pane |
+| `c` | Create new issue |
+| `s` | Open settings |
+| `?` | Show help |
+| `q` | Quit |
 
-#### Left pane — filesystem
-
+### Filesystem Pane (Left)
 | Key | Action |
 |-----|--------|
-| `↑` / `k` | move up |
-| `↓` / `j` | move down |
-| `enter` | enter directory |
+| `a` | **Attach/Detach file context** |
+| `r` | Refresh (reloads Git status) |
+| `enter` | Enter directory |
 
-#### Right pane — issues list
-
+### Create Screen (Drafting)
 | Key | Action |
 |-----|--------|
-| `↑` / `k` | move up |
-| `↓` / `j` | move down |
-| `enter` | open issue detail |
-| `o` | toggle open / closed |
-| `r` | refresh list |
+| `ctrl+s` | Generate/Submit |
+| `f` | **Refine with follow-up instruction** |
+| `v` | **Edit in system editor** |
+| `y` | Confirm and create on GitHub |
+| `b` | **Create local feature branch** (after creation) |
 
 ---
 
-### Create issue (`c`)
+## ░▒▓█ Contributing
 
-**Step 1 — Choose template**
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-Pick from `.github/ISSUE_TEMPLATES` with `j/k`, confirm with `enter`.
+## ░▒▓█ License
 
-**Step 2 — Title** *(optional)*
-
-Type a short title, or leave blank — the agent infers one from your context.
-
-**Step 3 — Context (paste anything)**
-
-This is the power step. Paste whatever you have:
-
-- A Slack message: *"login redirect broken on staging, users get 403 after SSO"*
-- An error log or stack trace
-- A PR description you want converted to a task
-- Meeting notes: *"discussed: dark mode, auth timeout issue, mobile perf"*
-- A one-liner: *"fix the thing that breaks when you click save twice"*
-
-Press `ctrl+s` when ready.
-
-> **Tip:** pastes longer than ~150 characters skip the Q&A round entirely — the agent drafts immediately from your context.
-
-**Step 4 — Agent Q&A** *(short pastes only)*
-
-For brief inputs the agent may ask 1–3 clarifying questions. Answer and press `enter`. Type `skip` to force an immediate draft.
-
-**Step 5 — Preview**
-
-| Key | Action |
-|-----|--------|
-| `y` | create the GitHub issue |
-| `r` | regenerate |
-| `esc` | cancel |
-
----
-
-### Issue detail (`enter`)
-
-| Key | Action |
-|-----|--------|
-| `↑` / `k` | scroll up |
-| `↓` / `j` | scroll down |
-| `e` | edit title and body |
-| `c` | add a comment |
-| `a` | assign yourself |
-| `x` | close issue |
-| `o` | reopen issue |
-| `esc` | back to list |
-
-**Editing:** press `e`, use `tab` to switch between title and body, `ctrl+s` to save. Changes are applied with `gh issue edit` and the issue reloads automatically.
-
----
-
-### Settings (`s`)
-
-| Field | Description |
-|-------|-------------|
-| GitHub Repo | `owner/repo` — where issues are created |
-| Ollama Model | any model you have pulled (`llama3`, `mistral`, `gemma2`…) |
-| Ollama Host | default `http://localhost:11434` — change for remote Ollama |
-| Timeout (sec) | how long to wait for the model before giving up |
-| Max Turns | max Q&A rounds (default 6) |
-| Sound | audio feedback on macOS/Linux |
-| Debug | dumps raw model output to stderr |
-
-Navigate with `tab` / `shift+tab`, press `ctrl+s` to save.
-
----
-
-## ░▒▓█ Issue templates
-
-intake reads templates from `.github/ISSUE_TEMPLATES/*.md`. Each file needs YAML frontmatter:
-
-```markdown
----
-name: "🐞 Bug Report"
-about: "Report an issue"
-title: "🐞 [Brief title]"
-labels: ["bug"]
-assignees: []
----
-
-## Summary
-...
-```
-
-Labels are auto-applied on create. Any repo already using GitHub issue templates works out of the box.
-
----
-
-## ░▒▓█ Troubleshooting
-
-**`ollama is not running — start it with: ollama serve`**
-```bash
-ollama serve
-```
-
-**`gh: command not found`**
-Install the GitHub CLI (above) and run `gh auth login`.
-
-**Model produces garbled JSON**
-Try a larger model: `ollama pull llama3.1`, then set it in Settings. Small models (< 7B) sometimes struggle with strict JSON output.
-
-**Templates not showing**
-Ensure `INTAKE_TEMPLATE_DIR` points to a directory with `*.md` files that have YAML frontmatter. Default is `.github/ISSUE_TEMPLATES` relative to where you run intake.
-
-**Sound not working on Linux**
-Install `pulseaudio-utils` (`paplay`) or `alsa-utils` (`aplay`). Or toggle Sound off in Settings.
-
----
-
-## ░▒▓█ Env reference
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `INTAKE_REPO` | *(unset)* | Target GitHub repo, e.g. `owner/repo` |
-| `INTAKE_MODEL` | `llama3` | Ollama model |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama daemon URL |
-| `INTAKE_TIMEOUT` | `120` | Request timeout in seconds |
-| `INTAKE_MAX_TURNS` | `6` | Max agent Q&A rounds |
-| `INTAKE_TEMPLATE_DIR` | `.github/ISSUE_TEMPLATES` | Template directory |
-| `INTAKE_DEBUG` | *(unset)* | Set to `1` to log raw model output |
-| `NO_COLOR` | *(unset)* | Disable ANSI colors |
-| `INTAKE_CONFIG` | `~/.config/intake/config.json` | Override config file path |
+Intake is released under the [MIT License](LICENSE).

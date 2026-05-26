@@ -99,19 +99,19 @@ func (g *GitHub) Comments(ctx context.Context, number int) ([]types.Comment, err
 }
 
 // Create writes the body to a temp file and invokes `gh issue create`.
-// Returns the URL of the new issue.
-func (g *GitHub) Create(ctx context.Context, draft types.Draft) (string, error) {
+// Returns the issue number and URL.
+func (g *GitHub) Create(ctx context.Context, draft types.Draft) (int, string, error) {
 	if strings.TrimSpace(draft.Title) == "" {
-		return "", errors.New("empty title")
+		return 0, "", errors.New("empty title")
 	}
 	f, err := os.CreateTemp("", "intake-body-*.md")
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	defer os.Remove(f.Name())
 	if _, err := f.WriteString(draft.Body); err != nil {
 		f.Close()
-		return "", err
+		return 0, "", err
 	}
 	f.Close()
 
@@ -130,11 +130,17 @@ func (g *GitHub) Create(ctx context.Context, draft types.Draft) (string, error) 
 	}
 	out, err := g.run(ctx, args...)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	// gh prints the URL as the last non-empty line
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	return strings.TrimSpace(lines[len(lines)-1]), nil
+	url := strings.TrimSpace(lines[len(lines)-1])
+	
+	// Extract number from URL (e.g. https://github.com/owner/repo/issues/123)
+	parts := strings.Split(url, "/")
+	num, _ := strconv.Atoi(parts[len(parts)-1])
+
+	return num, url, nil
 }
 
 func (g *GitHub) Comment(ctx context.Context, number int, body string) error {

@@ -24,6 +24,8 @@ func (m CreateModel) View() string {
 		lines = m.viewAgentTurns()
 	case stepPreview:
 		lines = m.viewPreview()
+	case stepRefine:
+		lines = m.viewRefine()
 	case stepCreating:
 		lines = []string{
 			"",
@@ -34,8 +36,13 @@ func (m CreateModel) View() string {
 			"",
 			app.StyleSuccess.Render("  ✓ Issue created: ") + app.StyleBlue.Render(m.createdURL),
 			"",
-			app.StyleDim.Render("  Press c to create another or l to list issues."),
 		}
+		if m.branchName != "" {
+			lines = append(lines, app.StyleSuccess.Render("  ✓ Branch created: ")+app.StyleBlue.Render(m.branchName), "")
+		} else {
+			lines = append(lines, app.StyleDim.Render("  Press b to create a local feature branch"), "")
+		}
+		lines = append(lines, app.StyleDim.Render("  Press c to create another or esc to return."))
 	}
 
 	if m.statusText != "" {
@@ -105,7 +112,7 @@ func (m CreateModel) viewBrief() []string {
 
 func (m CreateModel) viewAgentTurns() []string {
 	lines := []string{"", app.StyleBold.Render("  ◆ intake is thinking…"), ""}
-	if len(m.questions) == 0 {
+	if m.agent == nil {
 		lines = append(lines, fmt.Sprintf("  %s", m.spinner.View()))
 		return lines
 	}
@@ -140,7 +147,8 @@ func (m CreateModel) viewPreview() []string {
 		app.StyleAccent.Render("  Title: ") + m.draft.Title,
 		"",
 	}
-	box := app.BorderNormal.Width(m.width - 6).Render(m.draft.Body)
+	body := components.RenderMarkdown(m.draft.Body, m.width-6)
+	box := app.BorderNormal.Width(m.width - 6).Render(body)
 	lines = append(lines, box, "")
 
 	if len(m.draft.Labels) > 0 {
@@ -153,9 +161,21 @@ func (m CreateModel) viewPreview() []string {
 	}
 
 	lines = append(lines,
-		app.StyleDim.Render("  y  create issue   r  regenerate   esc  cancel"),
+		app.StyleDim.Render("  y  create issue   f  refine   v  edit   r  regenerate   esc  cancel"),
 	)
 	return lines
+}
+
+func (m CreateModel) viewRefine() []string {
+	return []string{
+		"",
+		app.StyleBold.Render("  Refine Draft"),
+		"",
+		app.StyleDim.Render("  Instruction  ") + app.StyleDim.Render("(e.g. 'more detail', 'fix typo', 'add logs')"),
+		"  " + m.refinementInput.View(),
+		"",
+		app.StyleDim.Render("  enter to submit · esc back to preview"),
+	}
 }
 
 var _ = lipgloss.NewStyle

@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/tinydarkforge/intake/app"
+	"github.com/tinydarkforge/intake/services"
 )
 
 // localEntry is one row in the filesystem pane.
@@ -22,12 +25,15 @@ type localEntry struct {
 
 // LocalPane is the left-side filesystem browser.
 type LocalPane struct {
-	dir     string
-	entries []localEntry
-	cursor  int
-	width   int
-	height  int
-	err     string
+	dir       string
+	gitRoot   string
+	gitStatus map[string]services.GitStatus // relative to gitRoot
+	entries   []localEntry
+	attached  map[string]bool // absolute path -> true
+	cursor    int
+	width     int
+	height    int
+	err       string
 }
 
 // NewLocalPane creates a LocalPane rooted at the process working directory.
@@ -36,12 +42,29 @@ func NewLocalPane() LocalPane {
 	if err != nil {
 		cwd = "."
 	}
-	m := LocalPane{dir: cwd}
+
+	root := ""
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err == nil {
+		root = strings.TrimSpace(string(out))
+	}
+
+	m := LocalPane{
+		dir:      cwd,
+		gitRoot:  root,
+		attached: make(map[string]bool),
+	}
 	m.reload()
 	return m
 }
 
 func (m *LocalPane) reload() {
+	if m.gitRoot != "" {
+		git := services.NewGit(m.gitRoot)
+		m.gitStatus, _ = git.Status(context.Background())
+	}
+
 	entries, err := os.ReadDir(m.dir)
 	if err != nil {
 		m.err = err.Error()
@@ -94,6 +117,9 @@ func (m LocalPane) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = msg.Row
 		}
 
+	case app.IssueCreatedMsg:
+		m.ClearAttached()
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -103,6 +129,20 @@ func (m LocalPane) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.cursor < len(m.entries)-1 {
 				m.cursor++
+			}
+		case "r":
+			m.reload()
+		case "a":
+			if m.cursor < len(m.entries) {
+				e := m.entries[m.cursor]
+				if e.name != ".." && !e.isDir {
+					path := filepath.Join(m.dir, e.name)
+					if m.attached[path] {
+						delete(m.attached, path)
+					} else {
+						m.attached[path] = true
+					}
+				}
 			}
 		case "enter":
 			if m.cursor < len(m.entries) {
@@ -122,6 +162,16 @@ func (m LocalPane) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// Attached returns the map of attached absolute file paths.
+func (m LocalPane) Attached() map[string]bool {
+	return m.attached
+}
+
+// ClearAttached clears the set of attached files.
+func (m *LocalPane) ClearAttached() {
+	m.attached = make(map[string]bool)
 }
 
 // Dir returns the current directory.
@@ -152,9 +202,11 @@ func (m LocalPane) NCLines(w, h int) []string {
 		return lines
 	}
 
-	// Two column widths: name takes most space, size takes ~8 chars.
+	// Column widths: attachment(4) + gap(1) + git(2) + name + gap(1) + size(8)
 	const sizeW = 8
-	nameW := w - sizeW - 1 // 1 for the space separator
+	const attachW = 4
+	const gitW = 2
+	nameW := w - sizeW - attachW - gitW - 2 // 2 for the space separators
 	if nameW < 4 {
 		nameW = 4
 	}
@@ -164,6 +216,38 @@ func (m LocalPane) NCLines(w, h int) []string {
 		if len(lines) >= h {
 			break
 		}
+
+		path := filepath.Join(m.dir, e.name)
+		var attachPart string
+		if m.attached[path] {
+			attachPart = app.StyleAccent.Render(" [x]")
+		} else if !e.isDir && e.name != ".." {
+			attachPart = " [ ]"
+		} else {
+			attachPart = "    "
+		}
+
+		gitPart := "  "
+		if m.gitRoot != "" && !e.isDir && e.name != ".." {
+			rel, err := filepath.Rel(m.gitRoot, path)
+			if err == nil {
+				if s, ok := m.gitStatus[rel]; ok {
+					switch s {
+					case services.GitModified:
+						gitPart = app.StyleWarning.Render("M ")
+					case services.GitAdded:
+						gitPart = app.StyleSuccess.Render("A ")
+					case services.GitUntracked:
+						gitPart = app.StyleDim.Render("? ")
+					case services.GitDeleted:
+						gitPart = app.StyleError.Render("D ")
+					case services.GitRenamed:
+						gitPart = app.StyleBlue.Render("R ")
+					}
+				}
+			}
+		}
+
 		var displayName string
 		if e.isDir {
 			displayName = e.name + "/"
@@ -179,7 +263,7 @@ func (m LocalPane) NCLines(w, h int) []string {
 			sizePart = truncPad(formatSize(e.size), sizeW)
 		}
 
-		raw := namePart + " " + sizePart
+		raw := attachPart + " " + gitPart + namePart + " " + sizePart
 		selected := i == m.cursor
 		lines = append(lines, styleLocalLine(raw, selected))
 	}

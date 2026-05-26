@@ -56,7 +56,7 @@ func NewDetail(gh *services.GitHub) DetailModel {
 
 func (m DetailModel) SetIssue(issue *types.Issue) DetailModel {
 	m.issue = issue
-	m.vp.SetContent(renderIssueBody(issue))
+	m.vp.SetContent(renderIssueBody(issue, m.width-4))
 	return m
 }
 
@@ -73,7 +73,7 @@ func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vp.Width = m.width - 4
 		m.vp.Height = m.height - 8
 		if m.issue != nil {
-			m.vp.SetContent(renderIssueBody(m.issue))
+			m.vp.SetContent(renderIssueBody(m.issue, m.width-4))
 		}
 
 	case app.OpenIssueMsg:
@@ -88,7 +88,7 @@ func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.IssueLoadedMsg:
 		m.issue = msg.Issue
-		m.vp.SetContent(renderIssueBody(m.issue))
+		m.vp.SetContent(renderIssueBody(m.issue, m.width-4))
 
 	case app.ErrMsg:
 		m.status = msg.Err.Error()
@@ -365,9 +365,9 @@ func (m DetailModel) viewEdit() string {
 	return strings.Join(lines, "\n")
 }
 
-func renderIssueBody(issue *types.Issue) string {
+func renderIssueBody(issue *types.Issue, width int) string {
 	if issue == nil {
 		return ""
 	}
-	return app.StyleBase.Render(issue.Body)
+	return components.RenderMarkdown(issue.Body, width)
 }

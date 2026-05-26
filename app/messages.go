@@ -20,8 +20,12 @@ type IssuesLoadedMsg struct {
 }
 type IssueLoadedMsg struct{ Issue *types.Issue }
 type IssueCreatedMsg struct {
-	URL   string
-	Draft types.Draft
+	Number int
+	URL    string
+	Draft  types.Draft
+}
+type BranchCreatedMsg struct {
+	Name string
 }
 type IssueActionDoneMsg struct {
 	Action string

@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -23,6 +25,7 @@ const (
 	stepBrief
 	stepAgentTurns
 	stepPreview
+	stepRefine
 	stepCreating
 	stepDone
 )
@@ -32,14 +35,16 @@ type CreateModel struct {
 	templates []types.Template
 	tmplIdx   int
 
-	titleInput textinput.Model
-	briefInput textarea.Model
-	answerIn   textinput.Model
+	titleInput      textinput.Model
+	briefInput      textarea.Model
+	answerIn        textinput.Model
+	refinementInput textinput.Model
 
 	agent     *services.Agent
 	turn      int
 	questions []string
 	draft     types.Draft
+	context   map[string]string // path -> content
 
 	stream   components.StreamPane
 	spinner  spinner.Model
@@ -53,6 +58,8 @@ type CreateModel struct {
 	statusText string
 	statusErr  bool
 	createdURL string
+	createdNum int
+	branchName string
 
 	width  int
 	height int
@@ -71,20 +78,24 @@ func NewCreate(gh *services.GitHub, ollama *services.OllamaClient, tmpls []types
 	ai := textinput.New()
 	ai.Placeholder = "Answer · enter to confirm · type 'skip' to finalize now…"
 
+	ri := textinput.New()
+	ri.Placeholder = "Refinement instruction (e.g. 'add reproduction steps') · enter to submit"
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = app.StyleAccent
 
 	return CreateModel{
-		templates:  tmpls,
-		titleInput: ti,
-		briefInput: bi,
-		answerIn:   ai,
-		spinner:    sp,
-		stream:     components.NewStreamPane(80, 20),
-		gh:         gh,
-		ollama:     ollama,
-		cfg:        cfg,
+		templates:       tmpls,
+		titleInput:      ti,
+		briefInput:      bi,
+		answerIn:        ai,
+		refinementInput: ri,
+		spinner:         sp,
+		stream:          components.NewStreamPane(80, 20),
+		gh:              gh,
+		ollama:          ollama,
+		cfg:             cfg,
 	}
 }
 
@@ -92,7 +103,7 @@ func NewCreate(gh *services.GitHub, ollama *services.OllamaClient, tmpls []types
 // model skips global shortcut handling and passes all keys here directly.
 func (m CreateModel) InterceptsKeys() bool {
 	switch m.step {
-	case stepTitle, stepBrief, stepAgentTurns:
+	case stepTitle, stepBrief, stepAgentTurns, stepRefine:
 		return true
 	}
 	return false
@@ -105,6 +116,10 @@ func (m CreateModel) Init() tea.Cmd {
 func (m CreateModel) SetProgram(p *tea.Program) CreateModel {
 	m.prog = p
 	return m
+}
+
+func (m *CreateModel) SetContext(ctx map[string]string) {
+	m.context = ctx
 }
 
 func (m CreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -149,7 +164,16 @@ func (m CreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case app.IssueCreatedMsg:
 		m.createdURL = msg.URL
+		m.createdNum = msg.Number
 		m.step = stepDone
+
+	case app.BranchCreatedMsg:
+		m.branchName = msg.Name
+		m.statusText = "branch " + m.branchName + " created"
+		m.statusErr = false
+
+	case agentEditMsg:
+		m.draft.Body = msg.Body
 
 	case app.ErrMsg:
 		m.statusText = msg.Err.Error()
@@ -168,6 +192,10 @@ func (m CreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.handleAnswerKey(msg)...)
 		case stepPreview:
 			cmds = append(cmds, m.handlePreviewKey(msg)...)
+		case stepRefine:
+			cmds = append(cmds, m.handleRefineKey(msg)...)
+		case stepDone:
+			cmds = append(cmds, m.handleDoneKey(msg)...)
 		}
 	}
 
@@ -184,6 +212,10 @@ func (m CreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stepAgentTurns:
 		var cmd tea.Cmd
 		m.answerIn, cmd = m.answerIn.Update(msg)
+		cmds = append(cmds, cmd)
+	case stepRefine:
+		var cmd tea.Cmd
+		m.refinementInput, cmd = m.refinementInput.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -219,8 +251,8 @@ func (m *CreateModel) handleTitleKey(msg tea.KeyMsg) []tea.Cmd {
 func (m *CreateModel) handleBriefKey(msg tea.KeyMsg) []tea.Cmd {
 	if msg.String() == "ctrl+s" {
 		brief := strings.TrimSpace(m.briefInput.Value())
-		if brief == "" {
-			m.statusText = "paste some context first"
+		if brief == "" && len(m.context) == 0 {
+			m.statusText = "paste some context or attach files first"
 			m.statusErr = true
 			return nil
 		}
@@ -230,21 +262,22 @@ func (m *CreateModel) handleBriefKey(msg tea.KeyMsg) []tea.Cmd {
 		m.draft.Labels = tmpl.Labels
 		m.draft.Template = tmpl.Filename
 
-		// rich paste (>150 chars) → skip Q&A, go straight to finalize
+		// rich paste (>150 chars) or attached files → skip Q&A, go straight to finalize
 		maxTurns := m.cfg.MaxTurns
-		autoFinalize := len(brief) > 150
+		autoFinalize := len(brief) > 150 || len(m.context) > 0
 		m.agent = &services.Agent{
 			O:        m.ollama,
 			Template: tmpl,
 			Title:    title,
 			Brief:    brief,
+			Context:  m.context,
 			MaxTurns: maxTurns,
 			Debug:    m.cfg.Debug,
 		}
 		m.turn = 1
 		m.step = stepAgentTurns
 		if autoFinalize {
-			// rich paste — skip Q&A, draft immediately
+			// rich paste or attached files — skip Q&A, draft immediately
 			return []tea.Cmd{m.agentFinalCmd()}
 		}
 		return []tea.Cmd{m.agentTurnCmd()}
@@ -288,6 +321,11 @@ func (m *CreateModel) handlePreviewKey(msg tea.KeyMsg) []tea.Cmd {
 	case "y":
 		m.step = stepCreating
 		return []tea.Cmd{m.createIssueCmd()}
+	case "f":
+		m.step = stepRefine
+		m.refinementInput.Focus()
+	case "v":
+		return []tea.Cmd{m.editInEditorCmd()}
 	case "r":
 		m.step = stepAgentTurns
 		return []tea.Cmd{m.agentFinalCmd()}
@@ -295,6 +333,108 @@ func (m *CreateModel) handlePreviewKey(msg tea.KeyMsg) []tea.Cmd {
 		m.Reset()
 	}
 	return nil
+}
+
+func (m *CreateModel) handleRefineKey(msg tea.KeyMsg) []tea.Cmd {
+	if msg.String() == "enter" {
+		instruction := strings.TrimSpace(m.refinementInput.Value())
+		if instruction == "" {
+			m.step = stepPreview
+			return nil
+		}
+		m.refinementInput.Reset()
+		m.step = stepAgentTurns // Re-use AgentTurns spinner state effectively
+		return []tea.Cmd{m.agentRefineCmd(instruction)}
+	} else if msg.String() == "esc" {
+		m.step = stepPreview
+	}
+	return nil
+}
+
+func (m *CreateModel) agentRefineCmd(instruction string) tea.Cmd {
+	agent := m.agent
+	return func() tea.Msg {
+		resp, err := agent.Refine(context.Background(), instruction)
+		if err != nil {
+			return app.ErrMsg{Err: err}
+		}
+		return app.AgentResponseMsg{Resp: resp}
+	}
+}
+
+func (m *CreateModel) handleDoneKey(msg tea.KeyMsg) []tea.Cmd {
+	switch msg.String() {
+	case "b":
+		if m.createdNum > 0 && m.branchName == "" {
+			return []tea.Cmd{m.createBranchCmd()}
+		}
+	case "esc", "c":
+		m.Reset()
+	}
+	return nil
+}
+
+func (m *CreateModel) editInEditorCmd() tea.Cmd {
+	return func() tea.Msg {
+		f, err := os.CreateTemp("", "intake-draft-*.md")
+		if err != nil {
+			return app.ErrMsg{Err: err}
+		}
+		defer os.Remove(f.Name())
+		if _, err := f.WriteString(m.draft.Body); err != nil {
+			f.Close()
+			return app.ErrMsg{Err: err}
+		}
+		f.Close()
+
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vim"
+		}
+
+		cmd := exec.Command(editor, f.Name())
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		// We need to suspend the TUI to run an interactive editor.
+		if m.prog != nil {
+			_ = m.prog.ReleaseTerminal()
+		}
+		err = cmd.Run()
+		if m.prog != nil {
+			_ = m.prog.RestoreTerminal()
+		}
+
+		if err != nil {
+			return app.ErrMsg{Err: err}
+		}
+
+		// Read back the file.
+		updated, err := os.ReadFile(f.Name())
+		if err != nil {
+			return app.ErrMsg{Err: err}
+		}
+
+		// Update draft and return back to preview.
+		return agentEditMsg{Body: string(updated)}
+	}
+}
+
+type agentEditMsg struct{ Body string }
+
+func (m *CreateModel) createBranchCmd() tea.Cmd {
+	num := m.createdNum
+	title := m.draft.Title
+	return func() tea.Msg {
+		cwd, _ := os.Getwd()
+		git := services.NewGit(cwd)
+		name, err := git.CreateBranch(context.Background(), num, title)
+		if err != nil {
+			return app.ErrMsg{Err: err}
+		}
+		return app.BranchCreatedMsg{Name: name}
+	}
 }
 
 func (m *CreateModel) agentTurnCmd() tea.Cmd {
@@ -324,11 +464,11 @@ func (m *CreateModel) createIssueCmd() tea.Cmd {
 	gh := m.gh
 	draft := m.draft
 	return func() tea.Msg {
-		url, err := gh.Create(context.Background(), draft)
+		num, url, err := gh.Create(context.Background(), draft)
 		if err != nil {
 			return app.ErrMsg{Err: err}
 		}
-		return app.IssueCreatedMsg{URL: url, Draft: draft}
+		return app.IssueCreatedMsg{Number: num, URL: url, Draft: draft}
 	}
 }
 
@@ -338,10 +478,15 @@ func (m *CreateModel) Reset() {
 	m.agent = nil
 	m.questions = nil
 	m.draft = types.Draft{}
+	m.context = nil
+	m.createdNum = 0
+	m.createdURL = ""
+	m.branchName = ""
 	m.stream.Reset()
 	m.titleInput.Reset()
 	m.briefInput.Reset()
 	m.answerIn.Reset()
+	m.refinementInput.Reset()
 	m.statusText = ""
 	m.statusErr = false
 }
